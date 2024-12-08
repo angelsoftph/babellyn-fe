@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faHeart } from "@fortawesome/free-regular-svg-icons";
+import { faThumbsDown } from "@fortawesome/free-regular-svg-icons";
 
 type Trans = {
   id: number;
@@ -11,6 +14,14 @@ type Trans = {
   trans: string;
 };
 
+type Flags = {
+  id: number;
+  flag: string;
+  comment: string;
+  uname: string;
+  created_at: Date;
+};
+
 const Home = () => {
   const [searchParams, setSearchParams] = useState("");
   const [searched, setSearched] = useState(false);
@@ -18,19 +29,53 @@ const Home = () => {
   const [translations, setTranslations] = useState<Trans[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [translationId, setTranslationId] = useState(0);
+  const [comment, setComment] = useState("");
+  const [flags, setFlags] = useState<Flags[] | undefined>([]);
+  const [flagResponse, setFlagResponse] = useState("");
+  const [isFlagged, setIsFlagged] = useState(false);
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
   const fetchTranslation = async () => {
     try {
       const phrase = encodeURIComponent(searchParams);
       const response = await fetch(
-        `http://127.0.0.1:8001/translations/?phrase=${phrase}&language_id=${language}`
+        `${apiUrl}/translations/?phrase=${phrase}&language_id=${language}`
       );
 
       if (response.status === 200) {
         const data: Trans[] = await response.json();
+        const translation_id = data[0].id;
+
+        const flags = await fetchFlags(translation_id);
+        setFlags(flags);
+
+        setSearched(false);
         setTranslations(data);
+        setTranslationId(translation_id);
+        setFlagResponse("");
+        setIsFlagged(false);
       } else if (response.status === 404) {
-        setError("No results found");
+        setError("No translations found.");
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+        console.error("Error message:", err.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFlags = async (translation_id: number) => {
+    try {
+      const response = await fetch(`${apiUrl}/get_flags/${translation_id}`);
+
+      if (response.status === 200) {
+        const data: Flags[] = await response.json();
+
+        return data;
       }
     } catch (err) {
       if (err instanceof Error) {
@@ -61,6 +106,37 @@ const Home = () => {
     setError(null);
 
     fetchTranslation();
+  };
+
+  const handleFlag = async (flag: string) => {
+    console.log("flag", flag);
+    try {
+      const response = await fetch(`${apiUrl}/flag_translation`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          translation_id: translationId,
+          user_id: 2,
+          flag,
+          comment,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setFlagResponse(result.message);
+        setIsFlagged(true);
+        setComment("");
+      } else {
+        setFlagResponse(result.error || "An error occurred");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      setFlagResponse("An unexpected error occurred");
+    }
   };
 
   return (
@@ -159,7 +235,7 @@ const Home = () => {
 
         <div className="flex flex-col mt-5 px-5 justify-center">
           {loading && <p>Loading...</p>}
-          {error && <p className="text-red-500">Error: {error}</p>}
+          {error && <p className="error-text">{error}</p>}
           {searchParams &&
             translations.length === 0 &&
             !loading &&
@@ -168,7 +244,83 @@ const Home = () => {
           <ul className="list-disc pl-5">
             {translations.map((trans) => (
               <li key={trans.id} className="mt-1">
-                <p>{trans.trans}</p>
+                <p className="mb-5">{trans.trans}</p>
+
+                {flagResponse === "" ? (
+                  <>
+                    <Input
+                      className="
+                      comment
+                      rounded-full
+                      h-14
+                      bg-transparent
+                      px-5
+                      py-3
+                      outline-none
+                      border-2
+                      border-gray-100
+                      shadow-md
+                      text-white
+                      text-center
+                      hover:outline-none
+                      focus:outline-none
+                    "
+                      placeholder="Type a comment (optional), then click an icon below"
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                    />
+                    <span
+                      className="flag"
+                      title="Accurate"
+                      onClick={() => handleFlag("1")}
+                    >
+                      <FontAwesomeIcon icon={faHeart} />
+                    </span>
+                    <span
+                      className="flag"
+                      title="Incorrect"
+                      onClick={() => handleFlag("0")}
+                    >
+                      <FontAwesomeIcon icon={faThumbsDown} />
+                    </span>
+                  </>
+                ) : (
+                  ""
+                )}
+                <p className="notification">
+                  {isFlagged ? "Translation successfully flagged." : ""}
+                </p>
+
+                {flags && flags.length > 0 ? (
+                  <ul className="flags">
+                    {flags.map((flag: Flags) => (
+                      <li
+                        key={flag.id}
+                        className={
+                          flag.flag === "1" ? "flagged-up" : "flagged-down"
+                        }
+                      >
+                        <div className="flex flex-col">
+                          <div className="flex justify-start">
+                            <p className="comment">{flag.comment}</p>
+                          </div>
+                          <div className="flex flex-row">
+                            <div className="flex w-1/2 justify-start">
+                              <span className="italic">{flag.uname}</span>
+                            </div>
+                            <div className="flex w-1/2 justify-end">
+                              <span className="italic">
+                                {new Date(flag.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  ""
+                )}
               </li>
             ))}
           </ul>
